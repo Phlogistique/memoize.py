@@ -87,9 +87,11 @@ def add_relevant_dir(d):
 def hashsum(fname):
     if not os.path.isfile(fname):
         return None
-    with open(fname, 'rb') as fh:
-        return hasher(fh.read()).digest()
-
+    try:
+        with open(fname, 'rb') as fh:
+            return hasher(fh.read()).digest()
+    except PermissionError:
+        return None
 
 def modtime(fname):
     try:
