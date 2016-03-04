@@ -22,7 +22,6 @@ except ImportError:
 
 
 # If set, use modification time instead of MD5-sum as check
-opt_use_modtime = False
 opt_dirs = ['.']
 hasher = hashlib.md5
 
@@ -75,9 +74,9 @@ arg_re = re.compile(r"""
     """, re.VERBOSE)
 
 
-def set_use_modtime(use):
-    global opt_use_modtime
-    opt_use_modtime = use
+def set_file_properties_getter(test):
+    global get_file_properties
+    get_file_properties = test
 
 
 def add_relevant_dir(d):
@@ -95,14 +94,18 @@ def hashsum(fname):
 
 def modtime(fname):
     try:
-        return os.path.getmtime(fname)
+        return os.path.stat(fname)
     except:
         return 'bad'
 
 
-def files_up_to_date(files, test):
+def modtime_hashsum(fname):
+    return (modtime(fname), hashsum(fname))
+
+
+def files_up_to_date(files, get_file_properties):
     for fname, value in files.iteritems():
-        if test(fname) != value:
+        if get_file_properties(fname) != value:
             logging.debug("Not up to date: %s", shlex_quote(fname))
             return False
     return True
@@ -149,7 +152,7 @@ def parse_strace_line(line):
     return filename
 
 
-def generate_deps(cmd, test):
+def generate_deps(cmd, get_file_properties):
     logging.info('Running: %s', cmd_to_str(cmd))
 
     outfile = os.path.join(tempfile.mkdtemp(), "pipe")
@@ -171,7 +174,7 @@ def generate_deps(cmd, test):
             fname = os.path.normpath(filename)
             if (fname not in files and os.path.isfile(fname) and
                     is_relevant(fname)):
-                files[fname] = test(fname)
+                files[fname] = get_file_properties(fname)
 
     status = p.wait()
     os.remove(outfile)
@@ -194,9 +197,8 @@ def write_deps(fname, deps):
 
 def memoize_with_deps(depsname, deps, cmd):
     files = deps.get(cmd)
-    test = modtime if opt_use_modtime else hashsum
-    if not files or not files_up_to_date(files, test):
-        status, files = generate_deps(cmd, test)
+    if not files or not files_up_to_date(files, get_file_properties):
+        status, files = generate_deps(cmd, get_file_properties)
         if status == 0:
             deps[cmd] = files
         elif cmd in deps:
@@ -215,19 +217,28 @@ def main():
     parser = argparse.ArgumentParser(
         description="Record a command's dependencies, skip if they did not change")
     parser.add_argument("command", nargs='+', help='The command to run')
-    parser.add_argument("--use-hash", action='store_true')
-    parser.add_argument("--no-use-hash", dest='use_hash', action='store_false')
     parser.add_argument("-d", "--relevant-dir", action='append', default=[])
     parser.add_argument("--verbose", action='store_true')
     parser.add_argument("--debug", action='store_true')
-    parser.set_defaults(use_hash=True)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--mtime", action='store_true',
+        help="Only use mtime to know if a file changed")
+    group.add_argument("--hash", action='store_true',
+        help="Only use file contents to know if a file changed")
 
     args = parser.parse_args()
 
     cmd = tuple(args.command)
-    set_use_modtime(not args.use_hash)
+    if args.mtime:
+        set_file_properties_getter(modtime)
+    elif args.hash:
+        set_file_properties_getter(hashsum)
+    else:
+        set_file_properties_getter(modtime_hashsum)
+
     for relevant_dir in args.relevant_dir:
         add_relevant_dir(relevant_dir)
+
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
     elif args.verbose:
