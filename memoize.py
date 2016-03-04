@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import argparse
-import cPickle
 import hashlib
 import logging
 import os
@@ -12,6 +11,7 @@ import sys
 import tempfile
 
 from six.moves import shlex_quote
+from six.moves import cPickle
 
 
 # If set, use modification time instead of MD5-sum as check
