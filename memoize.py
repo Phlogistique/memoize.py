@@ -10,8 +10,15 @@ import subprocess
 import sys
 import tempfile
 
-from six.moves import shlex_quote
-from six.moves import cPickle
+try:
+    from shlex import quote as shlex_quote # Python 3
+except ImportError:
+    from pipes import quote as shlex_quote # Python 2
+
+try:
+    import cPickle as pickle # Python 2
+except ImportError:
+    import pickle # Python 3
 
 
 # If set, use modification time instead of MD5-sum as check
@@ -132,14 +139,14 @@ def generate_deps(cmd, test):
 def read_deps(fname):
     try:
         with open(fname, 'rb') as fh:
-            return cPickle.load(fh)
+            return pickle.load(fh)
     except:
         return {}
 
 
 def write_deps(fname, deps):
     with open(fname, 'wb') as fh:
-        cPickle.dump(deps, fh)
+        pickle.dump(deps, fh)
 
 
 def memoize_with_deps(depsname, deps, cmd):
