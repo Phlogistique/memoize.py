@@ -29,7 +29,7 @@ hasher = hashlib.md5
 
 SYS_CALLS = [
     "execve",
-    "open", "openat", "access",
+    "open", "access", "openat",
     "stat", "stat64", "lstat",
 ]
 
@@ -39,9 +39,7 @@ strace_re = re.compile(r"""
   (?:
       # Relevant syscalls
       (?P<syscall>""" + "|".join(SYS_CALLS) + r""")
-      \( "
-      (?P<filename> (?: \\" | [^"] )* )
-      "
+      \(
   |
       # Irrelevant syscalls
       (?: utimensat | statfs | mkdir )
@@ -56,8 +54,25 @@ strace_re = re.compile(r"""
       # Exit
       \+\+\+
   )
-  .*
   """, re.VERBOSE)
+
+
+arg_re = re.compile(r"""
+    (?:
+        "
+        (?P<string>
+            (?:
+                \\"
+            |
+                [^"]
+            )*
+        )
+        "
+    |
+        [^,]+
+    )
+    (?: , | \) ) \s*
+    """, re.VERBOSE)
 
 
 def set_use_modtime(use):
@@ -101,6 +116,37 @@ def cmd_to_str(cmd):
     return " ".join(shlex_quote(arg) for arg in cmd)
 
 
+def parse_strace_line(line):
+    match = re.match(strace_re, line)
+
+    if not match:
+        logging.warning("Failed to parse this line: %s",
+                        line.rstrip("\n"))
+        return None
+
+    syscall = match.group("syscall")
+    if not syscall:
+        return None
+
+    if syscall == "openat":
+        arg_number = 2
+    else:
+        arg_number = 1
+
+    while arg_number > 0:
+        arg_number -= 1
+        pos = match.end()
+        match = arg_re.match(line, pos)
+        if not match:
+            raise Exception("Failed to parse arguments to syscall", line, pos)
+
+    filename = match.group("string")
+    if not filename:
+        raise Exception("Failed to parse arguments to syscall: {}".format(line.rstrip("\n")))
+
+    return filename
+
+
 def generate_deps(cmd, test):
     logging.info('Running: %s', cmd_to_str(cmd))
 
@@ -118,14 +164,9 @@ def generate_deps(cmd, test):
 
     files = {}
     for line in open(outfile):
-        match = re.match(strace_re, line)
-
-        if not match:
-            logging.warning("Failed to parse this line: %s",
-                            line.rstrip("\n"))
-            continue
-        if match.group("filename"):
-            fname = os.path.normpath(match.group("filename"))
+        filename = parse_strace_line(line)
+        if filename:
+            fname = os.path.normpath(filename)
             if (fname not in files and os.path.isfile(fname) and
                     is_relevant(fname)):
                 files[fname] = test(fname)
